@@ -1,0 +1,179 @@
+#!/usr/bin/env perl 
+
+use Text::Unaccent::PurePerl;
+#use open ":encoding(Latin1)"; #Format Windows
+use open ":encoding(utf8)"; #Format UTF8
+use BerkeleyDB;
+use Config::Simple;
+
+my %Country2Code = ( 
+"ALBANIE" => "AL",
+"ALLEMAGNE" => "DE",
+"BELGIQUE" => "BE",
+"ETATS-UNIS" => "US",
+"FRANCE" => "FR",
+"MEXIQUE" => "MX",
+"SUISSE" => "CH");
+
+$ConfFile=$ENV{'HOME'}."/.gedrc";
+
+if( $#ARGV+1 == 1)
+{
+    ( -r $ConfFile ) or die "usage : $0 FichierATraiter.ged Conversion-Suffixe GeonameDatabaseConverted";
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->read($ConfFile) or die $cfg->error();
+    $GeoNameConverted=$cfg->param("GeoNameConvertedDatabase");
+    ($GeoNameConverted ne '') or die "usage : $0 FichierATraiter.ged Conversion-Suffixe GeonameDatabaseConverted";
+    $ConvertedSuffix=$cfg->param("ConvertedSuffix");
+    ($ConvertedSuffix ne '') or die "usage : $0 FichierATraiter.ged Conversion-Suffixe [GeonameDatabaseConverted]";
+}
+elsif( $#ARGV+1 == 2) 
+{
+    $ConvertedSuffix=$ARGV[1];
+    if($ConvertedSuffix =~ /\//)
+    {
+        print  "\nusage : $0 FichierATraiter.ged Conversion-Suffixe";
+        print "\n\nLe parametre Conversion-Suffixe ne peut contenir de / \n\nIl peut contenir par exemple '-exported'";
+        exit;
+    }
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->read($ConfFile) or die $cfg->error();
+    $GeoNameConverted=$cfg->param("GeoNameConvertedDatabase");
+    $cfg->param("ConvertedSuffix","$ConvertedSuffix");
+    $cfg->write($ConfFile) or die $cfg->error();
+}
+elsif( $#ARGV+1 == 3) 
+{
+    $ConvertedSuffix=$ARGV[1];
+    $GeoNameConverted=$ARGV[2];
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->param("GeoNameConvertedDatabase","$GeoNameConverted");
+    $cfg->param("ConvertedSuffix","$ConvertedSuffix");
+    $cfg->write($ConfFile) or die $cfg->error();
+}
+else
+{
+    die "usage : $0 FichierATraiter.ged Conversion-Suffixe [GeonameDatabaseConverted]";
+}
+
+$FichierATraiter=$ARGV[0];
+$FichierTraite= $FichierATraiter;
+$FichierTraite=~ s/\.ged//;
+$FichierTraite.="$ConvertedSuffix.ged";
+
+$db = new BerkeleyDB::Hash( -Filename => $GeoNameConverted) or die "Ne peut pas ouvrir le fichier ".$GeoNameConverted." : $!";
+
+open(ENTREE,$FichierATraiter) or die "Ne peut pas ouvrir le fichier $FichierATraiter : $!";
+open(SORTIE,">$FichierTraite") or die "Ne peut pas ouvrir le fichier $FichierTraite : $!";
+while (<ENTREE>)
+{
+    if (/^2 PLAC/)
+    {
+        if( tr/,// >= 5) 
+        {
+            $ADDR=$_;
+            $ADDR=~ s/^.*,//;
+            print SORTIE "2 ADDR $ADDR";
+            s/,[^,]*$/,\r\n/;
+        }
+        print SORTIE "$_";
+        ($CleVille,$CodePostal,$Departement,$Region,$Pays,@dummy)=split(/,/,$_);
+        $CleVille  =~s/^2 PLAC //;
+        $CleVille  =~s/,.*//;
+        $CleVille=uc(unac_string($CleVille));
+        $PourDebug=$CleVille;
+    #    $CleVille =~ tr/-\'/  /;
+        #$CleVille =~ s/\s//g;
+        $CleVille =~ s/^PARIS\s+(\d+)EME/PARIS $1/;
+        $CleVille =~ s/^PARIS\s(\d)\s/PARIS 0$1 /;
+        $CleVille =~ s/\s+$//g;
+        if( exists $Country2Code{$Pays})
+        { 
+            $CodePays=$Country2Code{$Pays};
+            #print "Recherche $CleVille\@$CodePays\n";
+            if ($db->db_get( "$CleVille\@$CodePays", $Ligne ) == 0)
+            {
+                $Ligne=~s/;/\r\n/g;
+                print SORTIE "$Ligne\r\n";
+            }
+            else
+            {
+                $CleVilleTransformee = $CleVille;
+                $CleVilleTransformee =~ s/\s/-/g;
+                $CleVilleTransformee =~ s/^PARIS-(\d\d)-/PARIS $1 /;
+                if ($db->db_get( "$CleVilleTransformee\@$CodePays", $Ligne ) == 0)
+                {
+                    $Ligne=~s/;/\r\n/g;
+                    print SORTIE "$Ligne\r\n";
+                }
+                else
+                {
+                    print STDERR "Pas d'info de Geolocalisation pour $PourDebug de $Pays ($CleVille\@$CodePays ou $CleVilleTransformee\@$CodePays )\n";
+
+                }
+            }
+        }
+        else
+        {
+            print STDERR "Le code pays pour $Pays n'est pas dans le tableau Country2Code du script\n";
+        }
+    }
+    elsif (/^1 ABBR /)
+    {
+        s/ABBR/TITL/;
+        print SORTIE "$_";
+        s/-\s*(\d+)e?r?\s+(\D+)\s+(\d+)\s*-//;
+        $Jour=$1;
+        $Mois=$2;
+        $Annee=$3;
+        if( $Mois =~ /^jan/i ) { $Mois='01'; }
+        elsif( $Mois =~ /^f/i ) { $Mois='02'; }
+        elsif( $Mois =~ /^mar/i ) { $Mois='03'; }
+        elsif( $Mois =~ /^a.r/i ) { $Mois='04'; }
+        elsif( $Mois =~ /^ma/i ) { $Mois='05'; }
+        elsif( $Mois =~ /^j.*n/i ) { $Mois='06'; }
+        elsif( $Mois =~ /^j.*l/i ) { $Mois='07'; }
+        elsif( $Mois =~ /^a/i ) { $Mois='08'; }
+        elsif( $Mois =~ /^sep/i ) { $Mois='09'; }
+        elsif( $Mois =~ /^oct/i ) { $Mois='10'; }
+        elsif( $Mois =~ /^nov/i ) { $Mois='11'; }
+        elsif( $Mois =~ /^d/i ) { $Mois='12'; }
+        else { $Mois=0; }
+        print SORTIE "1 DATE $Jour/$Mois/$Annee\r\n" unless ( $Mois eq 0);
+    }
+    elsif (/^1 TITL /)
+    {
+        s/TITL/ABBR/;
+        print SORTIE "$_";
+    }
+    elsif (/^1 NAME .*~/)
+    {
+        s/\s*\~([^\/]*)//;
+        print SORTIE "$_";
+        @Noms=split(/~/,$1);
+        do
+        {
+            $_=<ENTREE>;
+            if ( /^2 SURN /)
+            {
+                s/\s*\~.*$//;
+            }
+            print SORTIE "$_";
+        }
+        while (! /^1 SEX /);
+        foreach $Nom (@Noms)
+        {
+            $Nom=~s/^\s*//;
+            $Nom=~s/\s*$//;
+            print SORTIE "1 NAME /$Nom/\r\n";
+            print SORTIE "2 TYPE 6\r\n";
+            print SORTIE "2 SURN $Nom\r\n";
+        }
+
+    }
+    else
+    {
+        print SORTIE "$_";
+    }
+}
+

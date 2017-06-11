@@ -1,0 +1,60 @@
+#!/usr/bin/perl
+
+use Text::Unaccent::PurePerl;
+use open ":encoding(Latin1)"; #Format Windows
+#use open ":encoding(utf8)"; #Format UTF8
+use BerkeleyDB;
+use Config::Simple;
+
+$ConfFile=$ENV{'HOME'}."/.gedrc";
+if( $#ARGV+1 == 1)
+{
+    ( -r $ConfFile ) or die "usage : $0 FichierATraiter.ged Conversion-Suffixe";
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->read($ConfFile) or die $cfg->error();
+    $ConvertedSuffix=$cfg->param("ConvertedSuffix");
+    ($ConvertedSuffix ne '') or die "usage : $0 FichierATraiter.ged Conversion-Suffixe";
+}
+elsif( $#ARGV+1 == 2) 
+{
+    $ConvertedSuffix=$ARGV[1];
+    if($ConvertedSuffix =~ /\//)
+    {
+        print  "\nusage : $0 FichierATraiter.ged Conversion-Suffixe";
+        print "\n\nLe parametre Conversion-Suffixe ne peut contenir de / \n\nIl peut contenir par exemple '-exported'";
+        exit;
+    }
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->param("ConvertedSuffix","$ConvertedSuffix");
+    $cfg->write($ConfFile) or die $cfg->error();
+}
+else
+{
+    die "usage : $0 FichierATraiter.ged Conversion-Suffixe";
+}
+
+$FichierATraiter=$ARGV[0];
+$FichierTraite= $FichierATraiter;
+$FichierTraite=~ s/\.ged//;
+$FichierTraite.="$ConvertedSuffix.ged";
+
+open(ENTREE,$FichierATraiter) or die "Ne peut pas ouvrir le fichier d'entree  $FichierATraiter : $!";
+open(SORTIE,">$FichierTraite") or die "Ne peut pas ouvrir le fichier de sortie $FichierTraite : $!";
+while (<ENTREE>)
+{
+    if (/^1 NAME .*~/)
+    {
+        s/\s*\~[^\/]*//;
+        print SORTIE "$_";
+    }
+    elsif (/^2 SURN .*~/)
+    {
+        s/\s*\~\s*/,/g;
+        print SORTIE "$_";
+    }
+    else
+    {
+        print SORTIE "$_";
+    }
+}
+

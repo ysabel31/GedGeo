@@ -1,0 +1,5 @@
+#!/bin/bash
+
+export LC_ALL=C
+cat "$1" |sed -e '/^2 PLAC / s/\(^[^,]*,\)[^,]*,\([^,]*,[^,]*,[^,]*\),.*/\1\2/'  -e 's/^1 ABBR /1 ABBRYSA /' -e 's/^1 TITL /1 ABBR /' |sed -e "s/ABBRYSA /TITL /" >"$2"
+echo "Conversion Terminée"

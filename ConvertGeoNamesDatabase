@@ -1,0 +1,74 @@
+#!/usr/bin/env perl 
+
+use BerkeleyDB;
+use Config::Simple;
+
+$ConfFile=$ENV{'HOME'}."/.gedrc";
+
+if( $#ARGV+1 == 1)
+{
+    ( -r $ConfFile ) or die "usage : $0 GeonameFichier GeoDatabase-Convertie";
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->read($ConfFile) or die $cfg->error();
+    $GeoNameConverted=$cfg->param("GeoNameConvertedDatabase");
+    ($GeoNameConverted ne '') or die "usage : $0 GeonameFichier GeoDatabase-Convertie";
+}
+elsif( $#ARGV+1 == 2) 
+{
+    $GeoNameConverted=$ARGV[1];
+    $cfg = new Config::Simple(syntax => "simple");
+    $cfg->param("GeoNameConvertedDatabase","$GeoNameConverted");
+    $cfg->write($ConfFile) or die $cfg->error();
+}
+else
+{
+    die "usage : $0 GeonameFichier [GeoDatabase-Convertie]";
+}
+
+
+$db = new BerkeleyDB::Hash( -Filename => $GeoNameConverted, -Flags => DB_CREATE ) or die "Ne peut pas ouvrir le fichier ".$GeoNameConverted." : $!";
+
+open(ENTREE,$ARGV[0]) or die "Ne peut pas ouvrir le fichier ".$ARGV[0]." : $!";
+print "Conversion de ".$ARGV[0]." vers $GeoNameConverted\n";
+<ENTREE>;
+$line=0;
+while (<ENTREE>)
+{
+print $_
+    $line++;
+    #($GeonameId,$CleVille,$AsciiName,$AlternaNames,$LAT,$LONG,$LAD,$LOD,$d8,$d9,$d10,$d11,$d12,$COUNTRY,$d14,$d15,$d16,$d17,$d18,$d19,$d20,$d21,$CleVille,@dummy)=split(/\t/,$_);
+    ($GeonameId,$CleVille,$AsciiName,$AlternateNames,$LAT,$LONG,$FeatureClass,$FeatureCode,$CountryCode,$CC2,$Admin1,$Admin2,$Admin3,$Admin4,$Population,$Elevation,$DEM,$TimezoneId,@dummy)=split(/\t/,$_);
+    next unless(($FeatureClass eq 'P') or ($FeatureClass eq 'T')); # 'P'= populated place
+    $Cle=uc "$AsciiName";
+    print "Conversion pour $Cle \n";
+    #$Cle =~ s/^PARIS *[0-9].*/PARIS/;
+    $LAT=~s/-/S/ or $LAT="N$LAT"; 
+    $InfoVille="2 LATI $LAT;";
+    ($LONG=~s/-/W/) or $LONG="E$LONG"; 
+    $InfoVille.="2 LONG $LONG;2 _COR;";
+    #$LAD=~s/(\d\d)$//;
+    #$LAS=$1;
+    #$LAD=~s/(\d\d)$//;
+    #$LAM=$1;
+    #$InfoVille.="3 _LAD $LAD;3 _LAM $LAM;3 _LAS $LAS;";
+    #$LOD=~s/(\d\d)$//;
+    #$LOS=$1;
+    #$LOD=~s/(\d\d)$//;
+    #$LOM=$1;
+    #$InfoVille.="3 _LOD $LOD;3 _LOM $LOM;3 _LOS $LOS";
+    if ($AlternateNames=~/,/)
+    {
+        foreach $Cle (split(',',uc "$AlternateNames"))
+        {
+            if($Cle !~ /[^[:ascii:]]/)
+            {
+                $db->db_put( "$Cle\@$CountryCode",$InfoVille);
+            }
+        }
+    }
+    $db->db_put( "$Cle\@$CountryCode",$InfoVille);
+}
+close ENTREE;
+close SORTIE;
+print "Base de Geolocalisation terminee\n"
+
