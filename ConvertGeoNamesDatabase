@@ -1,19 +1,27 @@
-#!/usr/bin/env perl 
-
+#!/usr/bin/env perl
+# module pour DB Cle valeur
 use BerkeleyDB;
+# module pour gerer un fichier config facilement
 use Config::Simple;
-
-$ConfFile=$ENV{'HOME'}."/.gedrc";
-
-if( $#ARGV+1 == 1)
+# fichier conf dans ~/.gedrc
+my $ConfFile = $ENV{'HOME'}."/.gedrc";
+my $GeoNameConverted;
+# un seul parametre
+if( scalar @ARGV == 1)
 {
+    # Fichier accessible en lecture
     ( -r $ConfFile ) or die "usage : $0 GeonameFichier GeoDatabase-Convertie";
-    $cfg = new Config::Simple(syntax => "simple");
+    # instancie objet de type Config::Simple
+    my $cfg = new Config::Simple(syntax => "simple");
+    # lecture des infos du fichier conf sinon affichage erreur
     $cfg->read($ConfFile) or die $cfg->error();
-    $GeoNameConverted=$cfg->param("GeoNameConvertedDatabase");
-    ($GeoNameConverted ne '') or die "usage : $0 GeonameFichier GeoDatabase-Convertie";
+    # Récuperation emplacement de la database
+    $GeoNameConverted = $cfg->param("GeoNameConvertedDatabase");
+    if ($GeoNameConverted eq '')
+      die "usage : $0 GeonameFichier GeoDatabase-Convertie";
 }
-elsif( $#ARGV+1 == 2) 
+# deux parametres
+elsif ( scalar @ARGV == 2)
 {
     $GeoNameConverted=$ARGV[1];
     $cfg = new Config::Simple(syntax => "simple");
@@ -25,27 +33,39 @@ else
     die "usage : $0 GeonameFichier [GeoDatabase-Convertie]";
 }
 
-
+# référence ver un nouvel objet de type BerkeleyDB::Hash stocké dans $db
+# = tableau de HASH enregistré sur le disque = BDD clé valeur
 $db = new BerkeleyDB::Hash( -Filename => $GeoNameConverted, -Flags => DB_CREATE ) or die "Ne peut pas ouvrir le fichier ".$GeoNameConverted." : $!";
 
+#ouverture du ficher a traiter en lecture ici handle de fichier = ENTREE
 open(ENTREE,$ARGV[0]) or die "Ne peut pas ouvrir le fichier ".$ARGV[0]." : $!";
 print "Conversion de ".$ARGV[0]." vers $GeoNameConverted\n";
+# handle de fichier entre <> lit une ligne du fichier et la renvoie
+# 1ere ligne n'est pas traité car = a un descriptif du contenu
 <ENTREE>;
-$line=0;
-while (<ENTREE>)
+# Traitement de la suite  tant que non eof renvoie vrai
+while ( my $ligne = <ENTREE>)
 {
-print $_
-    $line++;
-    #($GeonameId,$CleVille,$AsciiName,$AlternaNames,$LAT,$LONG,$LAD,$LOD,$d8,$d9,$d10,$d11,$d12,$COUNTRY,$d14,$d15,$d16,$d17,$d18,$d19,$d20,$d21,$CleVille,@dummy)=split(/\t/,$_);
-    ($GeonameId,$CleVille,$AsciiName,$AlternateNames,$LAT,$LONG,$FeatureClass,$FeatureCode,$CountryCode,$CC2,$Admin1,$Admin2,$Admin3,$Admin4,$Population,$Elevation,$DEM,$TimezoneId,@dummy)=split(/\t/,$_);
+    # $_ perl crado = variable non nommée = dont on ne prononce pas le nom = voldemort
+    # print $_
+    # ($GeonameId,$CleVille,$AsciiName,$AlternaNames,$LAT,$LONG,$LAD,$LOD,$d8,$d9,$d10,$d11,$d12,$COUNTRY,$d14,$d15,$d16,$d17,$d18,$d19,$d20,$d21,$CleVille,@dummy)=split(/\t/,$_);
+    # split renvoie un tableau => alimentation de chaque variable puis @dummy pour stocker autres colonnes non utilisées
+    # my devant la structure déclare toutes les variables
+    # le séparteur du split est une tabulation
+    my ($GeonameId,$CleVille,$AsciiName,$AlternateNames,$LAT,$LONG,$FeatureClass,$FeatureCode,$CountryCode,$CC2,$Admin1,$Admin2,$Admin3,$Admin4,$Population,$Elevation,$DEM,$TimezoneId, @dummy) = split(/\t/,$ligne);
+    # next passe au suivant unless = if not passe a la ligne suivante si $FeatureClass <> de P ou T
     next unless(($FeatureClass eq 'P') or ($FeatureClass eq 'T')); # 'P'= populated place
-    $Cle=uc "$AsciiName";
+    # uc = fonction qui fait uppercase ici sur 3ème élement
+    my $Cle = uc "$AsciiName";
     print "Conversion pour $Cle \n";
     #$Cle =~ s/^PARIS *[0-9].*/PARIS/;
-    $LAT=~s/-/S/ or $LAT="N$LAT"; 
-    $InfoVille="2 LATI $LAT;";
-    ($LONG=~s/-/W/) or $LONG="E$LONG"; 
-    $InfoVille.="2 LONG $LONG;2 _COR;";
+    #remplace le - par S sinon on préfixe par N
+    my $LAT =~ s/-/S/ or $LAT = "N$LAT";
+    my $InfoVille = "2 LATI $LAT;";
+    #remplace le - par W sinon on préfixe par E
+    my $LONG =~ s/-/W/ or $LONG="E$LONG";
+    $InfoVille .= "2 LONG $LONG;2 _COR;";
+
     #$LAD=~s/(\d\d)$//;
     #$LAS=$1;
     #$LAD=~s/(\d\d)$//;
@@ -56,19 +76,24 @@ print $_
     #$LOD=~s/(\d\d)$//;
     #$LOM=$1;
     #$InfoVille.="3 _LOD $LOD;3 _LOM $LOM;3 _LOS $LOS";
-    if ($AlternateNames=~/,/)
+
+    # si virgule dans AlternateNames prend toutes les valeurs
+    if ($AlternateNames =~ /,/)
     {
-        foreach $Cle (split(',',uc "$AlternateNames"))
+        # boucle pour chaque element de $AlternateNames qui est d'abord converti en majuscule puis splitté sur ,
+        # insertion dans BDD
+        foreach my $Element (split(',', uc "$AlternateNames"))
         {
-            if($Cle !~ /[^[:ascii:]]/)
+            # [:ascii:] = classe de caractères = tous les caractères ascii
+            # Tous ceux qui ont au moins un carctère non ascii ne sont pas traités
+            if($Element !~ /[^[:ascii:]]/)
             {
-                $db->db_put( "$Cle\@$CountryCode",$InfoVille);
+                $db->db_put( "$Element\@$CountryCode",$InfoVille);
             }
         }
     }
     $db->db_put( "$Cle\@$CountryCode",$InfoVille);
 }
+# Fermeture fichier
 close ENTREE;
-close SORTIE;
 print "Base de Geolocalisation terminee\n"
-
