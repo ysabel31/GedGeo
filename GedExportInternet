@@ -4,28 +4,41 @@ use Text::Unaccent::PurePerl;
 use open ":encoding(Latin1)"; #Format Windows
 #use open ":encoding(utf8)"; #Format UTF8
 use BerkeleyDB;
+# module pour gerer un fichier config facilement
 use Config::Simple;
-
-$ConfFile=$ENV{'HOME'}."/.gedrc";
-if( $#ARGV+1 == 1)
+# fichier conf ~/.gedrc
+$ConfFile = $ENV{'HOME'}."/.gedrc";
+# un seul parametre
+if( scalar @ARGV == 1)
 {
+    # Fichier accessible en lecture
     ( -r $ConfFile ) or die "usage : $0 FichierATraiter.ged Conversion-Suffixe";
+    # Instancie objet de type Config::Simple
     $cfg = new Config::Simple(syntax => "simple");
+    # lecture des infos du fichier conf sinon affichage erreur
     $cfg->read($ConfFile) or die $cfg->error();
+    # Récuperation suffixe fichier converti
     $ConvertedSuffix=$cfg->param("ConvertedSuffix");
+    # Erreur si pas de suffixe
     ($ConvertedSuffix ne '') or die "usage : $0 FichierATraiter.ged Conversion-Suffixe";
 }
-elsif( $#ARGV+1 == 2) 
+# deux parametres
+elsif( scalar @ARGV == 2)
 {
-    $ConvertedSuffix=$ARGV[1];
+    # Récuperation 2ème argument  => suffixe fichier converti
+    $ConvertedSuffix = $ARGV[1];
+    # Si suffixe cpntient un / => pb
     if($ConvertedSuffix =~ /\//)
     {
         print  "\nusage : $0 FichierATraiter.ged Conversion-Suffixe";
         print "\n\nLe parametre Conversion-Suffixe ne peut contenir de / \n\nIl peut contenir par exemple '-exported'";
         exit;
     }
+    # Instancie objet de type Config::Simple
     $cfg = new Config::Simple(syntax => "simple");
+    # modification ConvertedSuffix de l'objet $cfg
     $cfg->param("ConvertedSuffix","$ConvertedSuffix");
+    # modification de la valeur dans le fichier ou erreur
     $cfg->write($ConfFile) or die $cfg->error();
 }
 else
@@ -33,28 +46,41 @@ else
     die "usage : $0 FichierATraiter.ged Conversion-Suffixe";
 }
 
-$FichierATraiter=$ARGV[0];
-$FichierTraite= $FichierATraiter;
-$FichierTraite=~ s/\.ged//;
-$FichierTraite.="$ConvertedSuffix.ged";
-
+$FichierATraiter = $ARGV[0];
+$FichierTraite = $FichierATraiter;
+# Suppression extension fichier .ged
+# Echappement . pour ne pas signifier n'importe quel caractere
+$FichierTraite =~ s/\.ged//;
+$FichierTraite .= "$ConvertedSuffix.ged";
+# redirection < => lecture > => ecriture <> => ajout
+#ouverture du ficher a traiter en lecture ici handle de fichier = ENTREE
 open(ENTREE,$FichierATraiter) or die "Ne peut pas ouvrir le fichier d'entree  $FichierATraiter : $!";
+# Ouverture du ficher a traiter en ecriture ici handle de fichier = SORTIE
 open(SORTIE,">$FichierTraite") or die "Ne peut pas ouvrir le fichier de sortie $FichierTraite : $!";
-while (<ENTREE>)
+# Traitement de la suite  tant que non eof renvoie vrai
+# si utilisation while (<ENTREE>) ligne lue va dans $_
+while ( my $ligne = <ENTREE>)
 {
-    if (/^1 NAME .*~/)
+    # Si utilisation $_  test => if (/^1 NAME .*~/)
+    # test avec =~ renvoie vrai si au moins une occurence est trouvée
+    if ( $ligne =~ /^1 NAME .*~/)
     {
-        s/\s*\~[^\/]*//;
-        print SORTIE "$_";
+        # si $_  instruction aurait été la suivante
+        # s/\s*\~[^\/]*//;
+        # Suppression blanc ~ jusqu'a 1ere occurence /
+        $ligne =~ s/\s*\~[^\/]*//;
+        # print SORTIE sans précision écrira dans le fichier $_
+        # print SORTIE ecrira dans le fichier $ligne
+        print SORTIE "$ligne";
     }
-    elsif (/^2 SURN .*~/)
+    elsif ($ligne =~ /^2 SURN .*~/)
     {
-        s/\s*\~\s*/,/g;
-        print SORTIE "$_";
+        # Remplace toutes les occurences blanc ~ blanc par virgule (/g)
+        $ligne =~ s/\s*\~\s*/,/g;
+        print SORTIE "$ligne";
     }
     else
     {
-        print SORTIE "$_";
+        print SORTIE "$ligne";
     }
 }
-
