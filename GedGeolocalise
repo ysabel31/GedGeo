@@ -1,12 +1,17 @@
-#!/usr/bin/env perl 
+#!/usr/bin/env perl
+use strict;
+use warnings;
 
 use Text::Unaccent::PurePerl;
 #use open ":encoding(Latin1)"; #Format Windows
 use open ":encoding(utf8)"; #Format UTF8
+# module pour DB Cle valeur
 use BerkeleyDB;
+# module pour gerer un fichier config f
 use Config::Simple;
-
-my %Country2Code = ( 
+my $GeoNameConverted;
+my $ConvertedSuffix;
+my %Country2Code = (
 "ALBANIE" => "AL",
 "ALLEMAGNE" => "DE",
 "BELGIQUE" => "BE",
@@ -14,81 +19,118 @@ my %Country2Code = (
 "FRANCE" => "FR",
 "MEXIQUE" => "MX",
 "SUISSE" => "CH");
-
-$ConfFile=$ENV{'HOME'}."/.gedrc";
-
-if( $#ARGV+1 == 1)
+# fichier conf dans ~/.gedrc
+my $ConfFile=$ENV{'HOME'}."/.gedrc";
+# un seul parametre
+if( scalar @ARGV == 1)
 {
+     #Fichier accessible en lecture
     ( -r $ConfFile ) or die "usage : $0 FichierATraiter.ged Conversion-Suffixe GeonameDatabaseConverted";
-    $cfg = new Config::Simple(syntax => "simple");
+    # instancie objet de type Config::Simple
+    my $cfg = new Config::Simple(syntax => "simple");
+    # lecture des infos du fichier conf sinon affichage erreur
     $cfg->read($ConfFile) or die $cfg->error();
-    $GeoNameConverted=$cfg->param("GeoNameConvertedDatabase");
+    # Récupération nom de la database convertie
+    $GeoNameConverted = $cfg->param("GeoNameConvertedDatabase");
     ($GeoNameConverted ne '') or die "usage : $0 FichierATraiter.ged Conversion-Suffixe GeonameDatabaseConverted";
+    #Récupération suffixe du fichier converti
     $ConvertedSuffix=$cfg->param("ConvertedSuffix");
     ($ConvertedSuffix ne '') or die "usage : $0 FichierATraiter.ged Conversion-Suffixe [GeonameDatabaseConverted]";
 }
-elsif( $#ARGV+1 == 2) 
+elsif( scalar @ARGV == 2)
 {
+    # Suffixe fichier converti = 2ème argument
     $ConvertedSuffix=$ARGV[1];
+    # Si un / dans 2ème argument
     if($ConvertedSuffix =~ /\//)
     {
+        # Message d'erreur
         print  "\nusage : $0 FichierATraiter.ged Conversion-Suffixe";
         print "\n\nLe parametre Conversion-Suffixe ne peut contenir de / \n\nIl peut contenir par exemple '-exported'";
         exit;
     }
-    $cfg = new Config::Simple(syntax => "simple");
+    #instanciation objet
+    my $cfg = new Config::Simple(syntax => "simple");
+    # Lecture ou message d'erreur
     $cfg->read($ConfFile) or die $cfg->error();
+    # Récupération nom de la database convertie
     $GeoNameConverted=$cfg->param("GeoNameConvertedDatabase");
+    # Ecriture suffixe ichier converti dans fichier ConfFile
     $cfg->param("ConvertedSuffix","$ConvertedSuffix");
     $cfg->write($ConfFile) or die $cfg->error();
 }
-elsif( $#ARGV+1 == 3) 
+elsif( scalar @ARGV == 3)
 {
+    # Suffixe fichier converti = deuxième argument
     $ConvertedSuffix=$ARGV[1];
+    # Nom DB convertie = troisième argument
     $GeoNameConverted=$ARGV[2];
-    $cfg = new Config::Simple(syntax => "simple");
+    # Instanciation objet
+    my $cfg = new Config::Simple(syntax => "simple");
+    # Ecriture dans fichier de conf des valeurs récupérées
     $cfg->param("GeoNameConvertedDatabase","$GeoNameConverted");
     $cfg->param("ConvertedSuffix","$ConvertedSuffix");
     $cfg->write($ConfFile) or die $cfg->error();
 }
 else
 {
+    # Nombre d'arguments incorrect => erreur
     die "usage : $0 FichierATraiter.ged Conversion-Suffixe [GeonameDatabaseConverted]";
 }
-
-$FichierATraiter=$ARGV[0];
-$FichierTraite= $FichierATraiter;
-$FichierTraite=~ s/\.ged//;
-$FichierTraite.="$ConvertedSuffix.ged";
-
+# 1er argument = Nom fichier à traiter
+my $FichierATraiter = $ARGV[0];
+# Construction nom fichier traité
+my $FichierTraite = $FichierATraiter;
+$FichierTraite =~ s/\.ged//;
+$FichierTraite .= "$ConvertedSuffix.ged";
+# Instanciation objet de type database ( => ouvrir fichier DB)
 $db = new BerkeleyDB::Hash( -Filename => $GeoNameConverted) or die "Ne peut pas ouvrir le fichier ".$GeoNameConverted." : $!";
-
+# Ouverture du ficher a traiter en lecture handle de fichier = ENTREE
 open(ENTREE,$FichierATraiter) or die "Ne peut pas ouvrir le fichier $FichierATraiter : $!";
+# Ouverture du ficher traité en ecriture handle de fichier = SORTIE
 open(SORTIE,">$FichierTraite") or die "Ne peut pas ouvrir le fichier $FichierTraite : $!";
-while (<ENTREE>)
+# Handle de fichier entre <> ( <ENTREE> ) lit une ligne du fichier et la renvoie
+# La 1ere ligne du fichier n'est pas traitée car c'est un descriptif du contenu
+<ENTREE>;
+# Traitement de la suite du fichier en entrée tant que non eof renvoie vrai
+while (my $ligne = <ENTREE>)
 {
-    if (/^2 PLAC/)
+    # Si ligne commence par 2 PLAC
+    if ($ligne =~ /^2 PLAC/)
     {
-        if( tr/,// >= 5) 
+        # tr = opérateur de translittération
+        # Translittère chacune des occurrences des caractères de la liste recherchée par le caractère correspondant de la liste de remplacement.
+        # Cette opérateur retourne le nombre de caractères remplacés ou supprimés.
+        # Si aucune chaîne n'est spécifié via =~ ou !~, la translittération s'applique à $_.
+        # (La chaîne spécifiée par =~ doit être une variable scalaire, un élément d'un tableau ou d'un table de hachage ou une affectation de l'un ou de l'autre
+        if( $ligne =~ tr/,// >= 5)
         {
-            $ADDR=$_;
-            $ADDR=~ s/^.*,//;
+            $ADDR= $ligne;
+            #Remplace tout a partir du début jusqu'a la dernière virgule par rien
+            $ADDR =~ s/^.*,//;
+            # Ecriture dans le fichier
             print SORTIE "2 ADDR $ADDR";
-            s/,[^,]*$/,\r\n/;
+            # Tout ce qui se trouve derrière la dernière virgile est remplacé par retour charriot
+            $ligne =~ s/[^,]*$/\r\n/;
         }
-        print SORTIE "$_";
-        ($CleVille,$CodePostal,$Departement,$Region,$Pays,@dummy)=split(/,/,$_);
-        $CleVille  =~s/^2 PLAC //;
-        $CleVille  =~s/,.*//;
-        $CleVille=uc(unac_string($CleVille));
-        $PourDebug=$CleVille;
-    #    $CleVille =~ tr/-\'/  /;
+        # Ecriture $ligne dans fichier
+        print SORTIE "$ligne";
+        # Eclatement de la ligne lue
+        my ($CleVille,$CodePostal,$Departement,$Region,$Pays,@dummy) = split(/,/,$ligne);
+        #Enleve 2 PLAC
+        $CleVille  =~ s/^2 PLAC //;
+        #$CleVille  =~ s/,.*//;
+        #transforme en majuscule en enlevant les accents
+        $CleVille = uc(unac_string($CleVille));
+        #$CleVille =~ tr/-\'/  /;
         #$CleVille =~ s/\s//g;
+        # Pour Paris remplace Paris 11EME par PARIS 11
         $CleVille =~ s/^PARIS\s+(\d+)EME/PARIS $1/;
         $CleVille =~ s/^PARIS\s(\d)\s/PARIS 0$1 /;
-        $CleVille =~ s/\s+$//g;
+        #Supprime les derniers espaces
+        $CleVille =~ s/\s+$//;
         if( exists $Country2Code{$Pays})
-        { 
+        {
             $CodePays=$Country2Code{$Pays};
             #print "Recherche $CleVille\@$CodePays\n";
             if ($db->db_get( "$CleVille\@$CodePays", $Ligne ) == 0)
@@ -176,4 +218,3 @@ while (<ENTREE>)
         print SORTIE "$_";
     }
 }
-

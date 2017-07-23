@@ -1,4 +1,6 @@
 #!/usr/bin/env perl
+use strict;
+use warnings;
 # module pour DB Cle valeur
 use BerkeleyDB;
 # module pour gerer un fichier config facilement
